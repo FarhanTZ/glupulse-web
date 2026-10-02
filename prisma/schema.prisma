@@ -1,13 +1,269 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
-generator client {
-  provider = "prisma-client"
-  output   = "../src/generated/prisma"
-}
-
 datasource db {
   provider = "postgresql"
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+// ==========================================
+// 1. ENUMS
+// ==========================================
+
+enum UserRole {
+  USER
+  SELLER
+  ADMIN
+  SUPERADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  SUSPENDED
+  BANNED
+}
+
+enum DiabetesType {
+  TYPE_1
+  TYPE_2
+  GESTATIONAL
+  PREDIABETES
+  OTHER
+}
+
+enum GlucoseContext {
+  FASTING
+  POST_PRANDIAL
+  BEDTIME
+  RANDOM
+}
+
+enum SellerStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  SUSPENDED
+}
+
+enum OrderStatus {
+  PENDING
+  CONFIRMED
+  COOKING
+  SHIPPING
+  COMPLETED
+  CANCELED
+}
+
+enum PaymentStatus {
+  UNPAID
+  PAID
+  REFUNDED
+}
+
+// ==========================================
+// 2. MODELS
+// ==========================================
+
+model User {
+  id               String               @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  email            String               @unique @db.VarChar(255)
+  passwordHash     String               @map("password_hash") @db.VarChar(255)
+  fullName         String               @map("full_name") @db.VarChar(100)
+  role             UserRole             @default(USER)
+  status           UserStatus           @default(ACTIVE)
+  isEmailVerified  Boolean              @default(false) @map("is_email_verified")
+  createdAt        DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt        DateTime             @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  healthProfile    UserHealthProfile?
+  glucoseReadings  UserGlucoseReading[]
+  hba1cRecords     UserHba1cRecord[]
+  mealLogs         UserMealLog[]
+  orders           UserOrder[]
+  sellerProfile    SellerProfile?
+  emergencyAlerts  UserEmergencyAlert[]
+  caregiverAccess  CaregiverAccess[]
+  aiRecommendations AiRecommendationLog[]
+
+  @@map("users")
+}
+
+model UserHealthProfile {
+  id                     String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId                 String       @unique @map("user_id") @db.Uuid
+  diabetesType           DiabetesType @default(TYPE_2) @map("diabetes_type")
+  birthDate              DateTime?    @map("birth_date") @db.Date
+  heightCm               Decimal?     @map("height_cm") @db.Decimal(5, 2)
+  weightKg               Decimal?     @map("weight_kg") @db.Decimal(5, 2)
+  targetGlucoseMin       Int          @default(80) @map("target_glucose_min")
+  targetGlucoseMax       Int          @default(130) @map("target_glucose_max")
+  dailyCarbTargetGrams   Int          @default(150) @map("daily_carb_target_grams")
+  disclaimerAcceptedAt   DateTime?    @map("disclaimer_accepted_at") @db.Timestamptz
+  disclaimerVersion      String?      @default("v1.0") @map("disclaimer_version") @db.VarChar(20)
+  emergencyContactPhone  String?      @map("emergency_contact_phone") @db.VarChar(20)
+  emergencyContactName   String?      @map("emergency_contact_name") @db.VarChar(100)
+  updatedAt              DateTime     @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  user                   User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_health_profiles")
+}
+
+model UserGlucoseReading {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String         @map("user_id") @db.Uuid
+  glucoseValue Int            @map("glucose_value")
+  context      GlucoseContext
+  notes        String?        @db.Text
+  measuredAt   DateTime       @map("measured_at") @db.Timestamptz
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  user         User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, measuredAt(sort: Desc)])
+  @@map("user_glucose_readings")
+}
+
+model UserHba1cRecord {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String   @map("user_id") @db.Uuid
+  percentage     Decimal  @db.Decimal(4, 2)
+  labDocumentUrl String?  @map("lab_document_url") @db.Text
+  testedAt       DateTime @map("tested_at") @db.Date
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, testedAt(sort: Desc)])
+  @@map("user_hba1c_records")
+}
+
+model SellerProfile {
+  id                 String       @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String       @unique @map("user_id") @db.Uuid
+  storeName          String       @map("store_name") @db.VarChar(150)
+  storeAddress       String       @map("store_address") @db.Text
+  verificationStatus SellerStatus @default(PENDING) @map("verification_status")
+  ratingAvg          Decimal?     @default(0.00) @map("rating_avg") @db.Decimal(3, 2)
+  createdAt          DateTime     @default(now()) @map("created_at") @db.Timestamptz
+
+  user               User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  foods              Food[]
+  orders             UserOrder[]
+
+  @@map("seller_profiles")
+}
+
+model Food {
+  id                       String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sellerId                 String        @map("seller_id") @db.Uuid
+  foodName                 String        @map("food_name") @db.VarChar(150)
+  calories                 Int
+  carbsGrams               Decimal       @map("carbs_grams") @db.Decimal(5, 2)
+  glycemicIndex            Int           @map("glycemic_index")
+  glycemicLoad             Decimal       @map("glycemic_load") @db.Decimal(5, 2)
+  price                    Decimal       @db.Decimal(12, 2)
+  isActive                 Boolean       @default(true) @map("is_active")
+  isVerified               Boolean       @default(false) @map("is_verified")
+  isLabVerified            Boolean       @default(false) @map("is_lab_verified")
+  labCertificateUrl        String?       @map("lab_certificate_url") @db.Text
+  maxShippingDurationHours Int           @default(4) @map("max_shipping_duration_hours")
+  createdAt                DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  seller                   SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  orderItems               UserOrderItem[]
+
+  @@index([sellerId])
+  @@map("foods")
+}
+
+model UserOrder {
+  id            String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId        String        @map("user_id") @db.Uuid
+  sellerId      String        @map("seller_id") @db.Uuid
+  totalAmount   Decimal       @map("total_amount") @db.Decimal(12, 2)
+  orderStatus   OrderStatus   @default(PENDING) @map("order_status")
+  paymentStatus PaymentStatus @default(UNPAID) @map("payment_status")
+  paymentToken  String?       @map("payment_token") @db.VarChar(255)
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  seller        SellerProfile @relation(fields: [sellerId], references: [id], onDelete: Cascade)
+  items         UserOrderItem[]
+
+  @@map("user_orders")
+}
+
+model UserOrderItem {
+  id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  orderId   String    @map("order_id") @db.Uuid
+  foodId    String    @map("food_id") @db.Uuid
+  quantity  Int
+  unitPrice Decimal   @map("unit_price") @db.Decimal(12, 2)
+
+  order     UserOrder @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  food      Food      @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@map("user_order_items")
+}
+
+model UserMealLog {
+  id                  String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId              String   @map("user_id") @db.Uuid
+  mealTitle           String   @map("meal_title") @db.VarChar(150)
+  estimatedCarbsGrams Int      @default(0) @map("estimated_carbs_grams")
+  estimatedCalories   Int      @default(0) @map("estimated_calories")
+  glycemicIndexLevel  String   @default("MEDIUM") @map("glycemic_index_level") @db.VarChar(20)
+  foodPhotoUrl        String?  @map("food_photo_url") @db.Text
+  isAiEstimated       Boolean  @default(false) @map("is_ai_estimated")
+  consumedAt          DateTime @map("consumed_at") @db.Timestamptz
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user                User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("user_meal_logs")
+}
+
+model UserEmergencyAlert {
+  id                   String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId               String   @map("user_id") @db.Uuid
+  recordedGlucoseValue Int      @map("recorded_glucose_value")
+  gpsLatitude          Decimal? @map("gps_latitude") @db.Decimal(10, 8)
+  gpsLongitude         Decimal? @map("gps_longitude") @db.Decimal(11, 8)
+  statusDispatched     Boolean  @default(false) @map("status_dispatched")
+  dispatchedToPhone    String?  @map("dispatched_to_phone") @db.VarChar(20)
+  dispatchedAt         DateTime @default(now()) @map("dispatched_at") @db.Timestamptz
+
+  user                 User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, dispatchedAt(sort: Desc)])
+  @@map("user_emergency_alerts")
+}
+
+model CaregiverAccess {
+  id             String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  patientUserId  String   @map("patient_user_id") @db.Uuid
+  caregiverEmail String   @map("caregiver_email") @db.VarChar(255)
+  inviteCode     String   @unique @map("invite_code") @db.VarChar(32)
+  isAccepted     Boolean  @default(false) @map("is_accepted")
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user           User     @relation(fields: [patientUserId], references: [id], onDelete: Cascade)
+
+  @@map("caregiver_access")
+}
+
+model AiRecommendationLog {
+  id                String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  provider          String   @db.VarChar(20)
+  aggregatedContext Json     @map("aggregated_context")
+  aiResponseJson    Json     @map("ai_response_json")
+  tokensConsumed    Int      @default(0) @map("tokens_consumed")
+  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@map("ai_recommendation_logs")
 }
